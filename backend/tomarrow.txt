@@ -1,0 +1,37 @@
+I am building an AI Resume Screener / ATS project using FastAPI.
+
+Current backend status:
+- FastAPI project is already set up
+- Models exist: User, Job, Resume, Score
+- Database is connected (SQLAlchemy)
+- Authentication system exists (role-based: recruiter/user)
+- AI scoring using Gemini API is already integrated
+- Basic dashboard endpoint exists (stats like total_jobs, total_resumes, average_score, top_score)
+- Candidate scoring and ranking logic is already working
+
+Current goal:
+I want to upgrade this project to Phase 4 (Production-Level ATS features).
+
+Phase 4 features I want to implement:
+1. AI Skill Extraction from resume text
+2. Explainable AI scoring (show why a candidate got a score)
+3. Advanced analytics dashboard (score distribution + top candidates + insights)
+4. Email notification system (send alerts for high-score candidates or recruiter updates)
+
+Important constraints:
+- Do NOT redesign the whole project
+- Work with existing FastAPI structure
+- Keep SQLAlchemy ORM usage
+- Keep modular architecture (routers / models / utils)
+- Give step-by-step implementation (not everything at once)
+- Provide file-by-file code changes
+- Ensure code is production-ready and interview-ready
+
+Start from STEP 1: Skill Extraction system.
+Tell me:
+- which file to create
+- exact code to paste
+- where to integrate it in existing resume upload flow
+- how to test it in Swagger
+
+After Step 1 is done, we will continue to Step 2, Step 3, Step 4 sequentially.
