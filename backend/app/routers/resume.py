@@ -28,6 +28,46 @@ def extract_text_from_pdf(file_path: str) -> str:
     return text
 
 
+def parse_resume_background_task(resume_id: int):
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    from app.database.database import SessionLocal
+    from app.models.resume import Resume
+    
+    db = SessionLocal()
+    try:
+        resume = db.query(Resume).filter(Resume.id == resume_id).first()
+        if not resume:
+            return
+            
+        # 1. Extract text from PDF
+        text = extract_text_from_pdf(resume.filepath)
+        
+        # 2. Extract skills using Gemini
+        extracted_skills = extract_skills_from_resume(text)
+        
+        # 3. Update resume fields
+        resume.extracted_text = text
+        resume.extracted_skills = extracted_skills
+        resume.parsing_status = "completed"
+        
+        db.commit()
+    except Exception as e:
+        logger.error(f"Error during async resume parsing: {e}", exc_info=True)
+        try:
+            db.rollback()
+            resume = db.query(Resume).filter(Resume.id == resume_id).first()
+            if resume:
+                resume.parsing_status = "failed"
+                resume.extracted_skills = {"error": str(e)}
+                db.commit()
+        except Exception as rollback_err:
+            logger.error(f"Failed to save failed parsing status: {rollback_err}", exc_info=True)
+    finally:
+        db.close()
+
+
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(oauth2_scheme),
     db: Session = Depends(get_db)
@@ -47,6 +87,7 @@ def get_current_user(
 
 @router.post("/upload")
 def upload_resume(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     job_id: int | None = Form(None),
     current_user: User = Depends(get_current_user),
@@ -78,30 +119,28 @@ def upload_resume(
     with open(file_path, "wb") as f:
         f.write(file.file.read())
 
-    text = extract_text_from_pdf(file_path)
-
-    # extract skills using Gemini
-    extracted_skills = extract_skills_from_resume(text)
-
     resume = Resume(
         filename=filename,
         filepath=file_path,
-        extracted_text=text,
-        extracted_skills=extracted_skills,
+        extracted_text=None,
+        extracted_skills=None,
         user_id=current_user.id,
-        job_id=job.id if job else None
+        job_id=job.id if job else None,
+        parsing_status="processing"
     )
     db.add(resume)
     db.commit()
     db.refresh(resume)
 
+    # Spawn background parsing task
+    background_tasks.add_task(parse_resume_background_task, resume.id)
+
     return {
-        "message":          "Resume uploaded successfully",
+        "message":          "Resume upload complete. AI parsing started.",
         "resume_id":        resume.id,
         "uploaded_by":      current_user.email,
         "filename":         filename,
-        "extracted_text":   text[:500],
-        "extracted_skills": extracted_skills
+        "parsing_status":   resume.parsing_status
     }
 
 
@@ -267,7 +306,8 @@ def get_resume(
         "uploaded_by": resume.user.email if resume.user else "Unknown",
         "uploaded_at": resume.uploaded_at,
         "extracted_text": resume.extracted_text,
-        "extracted_skills": resume.extracted_skills
+        "extracted_skills": resume.extracted_skills,
+        "parsing_status": resume.parsing_status
     }
 
 

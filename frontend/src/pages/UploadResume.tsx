@@ -1,6 +1,7 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { useUploadResume } from '../hooks/useResumes';
 import { useJobs } from '../hooks/useJobs';
+import { resumesApi } from '../api/resumes';
 import { FileUp, FileText, CheckCircle, AlertTriangle, Loader2, Award, Terminal, Cpu } from 'lucide-react';
 import { motion } from 'framer-motion';
 
@@ -12,6 +13,53 @@ export const UploadResume: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [parsingStatus, setParsingStatus] = useState<'pending' | 'processing' | 'completed' | 'failed' | null>(null);
+  const [parsedData, setParsedData] = useState<any>(null);
+  const pollingIntervalRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+      }
+    };
+  }, []);
+
+  const startPolling = (resumeId: number) => {
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+    }
+    setParsingStatus('processing');
+    
+    const checkStatus = async () => {
+      try {
+        const details = await resumesApi.getResume(resumeId);
+        if (details.parsing_status === 'completed') {
+          setParsingStatus('completed');
+          setParsedData(details);
+          if (pollingIntervalRef.current) {
+            clearInterval(pollingIntervalRef.current);
+            pollingIntervalRef.current = null;
+          }
+        } else if (details.parsing_status === 'failed') {
+          setParsingStatus('failed');
+          setError(details.extracted_skills?.error || 'AI Skill parsing failed.');
+          if (pollingIntervalRef.current) {
+            clearInterval(pollingIntervalRef.current);
+            pollingIntervalRef.current = null;
+          }
+        }
+      } catch (err: any) {
+        console.error('Polling error:', err);
+      }
+    };
+
+    // Run first check immediately
+    checkStatus();
+
+    pollingIntervalRef.current = window.setInterval(checkStatus, 2000);
+  };
 
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
@@ -33,9 +81,15 @@ export const UploadResume: React.FC = () => {
       return;
     }
     setFile(selectedFile);
+    setError(null);
+    setParsingStatus('processing');
     
     uploadMutation.mutate({ file: selectedFile, jobId: parseInt(selectedJobId) }, {
+      onSuccess: (data) => {
+        startPolling(data.resume_id);
+      },
       onError: (err: any) => {
+        setParsingStatus('failed');
         setError(err.response?.data?.detail || 'Resume upload and extraction failed.');
       }
     });
@@ -60,6 +114,12 @@ export const UploadResume: React.FC = () => {
   const resetUpload = () => {
     setFile(null);
     setError(null);
+    setParsingStatus(null);
+    setParsedData(null);
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+    }
     uploadMutation.reset();
   };
 
@@ -137,16 +197,22 @@ export const UploadResume: React.FC = () => {
               </div>
               
               <div className="flex items-center gap-3">
-                {uploadMutation.isPending && (
+                {(uploadMutation.isPending || parsingStatus === 'processing') && (
                   <div className="flex items-center gap-2 text-xs font-semibold text-slate-400">
                     <Loader2 className="h-4 w-4 animate-spin text-brand-cyan" />
-                    Extracting competency blocks...
+                    AI Neural parsing in progress...
                   </div>
                 )}
-                {uploadMutation.isSuccess && (
+                {parsingStatus === 'completed' && (
                   <span className="flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 bg-emerald-500/10 border border-emerald-500/25 rounded-full text-emerald-400">
                     <CheckCircle className="h-3.5 w-3.5" />
-                    Extracted
+                    Parsed by AI
+                  </span>
+                )}
+                {parsingStatus === 'failed' && (
+                  <span className="flex items-center gap-1.5 text-xs font-bold px-2.5 py-1 bg-red-500/10 border border-red-500/25 rounded-full text-red-400">
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                    Failed
                   </span>
                 )}
               </div>
@@ -165,7 +231,31 @@ export const UploadResume: React.FC = () => {
               </div>
             )}
 
-            {uploadMutation.isSuccess && uploadMutation.data && (
+            {parsingStatus === 'processing' && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="flex flex-col items-center justify-center py-16 text-center space-y-4"
+              >
+                <div className="relative">
+                  <div className="absolute inset-0 bg-brand-cyan/20 rounded-full blur-xl animate-pulse" />
+                  <div className="h-16 w-16 bg-slate-950 border border-brand-cyan/35 text-brand-cyan rounded-full flex items-center justify-center relative shadow-[0_0_20px_rgba(0,229,255,0.2)]">
+                    <Cpu className="h-8 w-8 animate-spin" style={{ animationDuration: '3s' }} />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <h4 className="text-slate-200 font-bold text-base">AI Neural Parser is scanning your profile</h4>
+                  <p className="text-slate-450 text-xs max-w-xs leading-relaxed mx-auto">
+                    Analyzing skills, structuring tools, soft competencies, and certifications. This takes a few seconds...
+                  </p>
+                </div>
+                <div className="text-[10px] font-mono text-brand-cyan uppercase tracking-widest animate-pulse">
+                  [Executing skill gap matches]
+                </div>
+              </motion.div>
+            )}
+
+            {parsingStatus === 'completed' && parsedData && (
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -174,15 +264,15 @@ export const UploadResume: React.FC = () => {
                 <div>
                   <h3 className="text-sm font-bold text-slate-300 uppercase tracking-wider">Extracted Plaintext Snippet</h3>
                   <div className="mt-2 p-4 rounded-2xl bg-slate-950/50 border border-white/5 text-xs font-mono text-slate-400 max-h-40 overflow-y-auto whitespace-pre-wrap leading-relaxed">
-                    {uploadMutation.data.extracted_text}
+                    {parsedData.extracted_text}
                   </div>
                 </div>
 
                 <div className="space-y-4">
                   <h3 className="text-sm font-bold text-slate-350 uppercase tracking-wider">AI Competency Mapping</h3>
-                  {uploadMutation.data.extracted_skills?.error && (
+                  {parsedData.extracted_skills?.error && (
                     <div className="p-3 bg-amber-500/10 border border-amber-500/25 rounded-lg text-xs text-amber-400">
-                      Extraction error details: {uploadMutation.data.extracted_skills.error}
+                      Extraction error details: {parsedData.extracted_skills.error}
                     </div>
                   )}
 
@@ -194,8 +284,8 @@ export const UploadResume: React.FC = () => {
                         <h4 className="font-bold text-xs uppercase tracking-wider text-slate-300">Technical Skills</h4>
                       </div>
                       <div className="flex flex-wrap gap-1.5 pt-1">
-                        {uploadMutation.data.extracted_skills?.technical_skills?.length ? (
-                          uploadMutation.data.extracted_skills.technical_skills.map((skill, idx) => (
+                        {parsedData.extracted_skills?.technical_skills?.length ? (
+                          parsedData.extracted_skills.technical_skills.map((skill: string, idx: number) => (
                             <span key={idx} className="px-2 py-0.5 text-xs rounded bg-white/5 border border-white/5 text-slate-300 font-medium">
                               {skill}
                             </span>
@@ -213,8 +303,8 @@ export const UploadResume: React.FC = () => {
                         <h4 className="font-bold text-xs uppercase tracking-wider text-slate-300">Tools & Stack</h4>
                       </div>
                       <div className="flex flex-wrap gap-1.5 pt-1">
-                        {uploadMutation.data.extracted_skills?.tools_and_technologies?.length ? (
-                          uploadMutation.data.extracted_skills.tools_and_technologies.map((tool, idx) => (
+                        {parsedData.extracted_skills?.tools_and_technologies?.length ? (
+                          parsedData.extracted_skills.tools_and_technologies.map((tool: string, idx: number) => (
                             <span key={idx} className="px-2 py-0.5 text-xs rounded bg-white/5 border border-white/5 text-slate-300 font-medium">
                               {tool}
                             </span>
@@ -227,13 +317,13 @@ export const UploadResume: React.FC = () => {
 
                     {/* Soft Skills */}
                     <div className="p-4 rounded-2xl border border-white/5 bg-slate-950/30 space-y-3">
-                      <div className="flex items-center gap-2 text-slate-405">
+                      <div className="flex items-center gap-2 text-slate-455">
                         <Award className="h-4.5 w-4.5 text-emerald-400" />
                         <h4 className="font-bold text-xs uppercase tracking-wider text-slate-300">Soft Skills</h4>
                       </div>
                       <div className="flex flex-wrap gap-1.5 pt-1">
-                        {uploadMutation.data.extracted_skills?.soft_skills?.length ? (
-                          uploadMutation.data.extracted_skills.soft_skills.map((skill, idx) => (
+                        {parsedData.extracted_skills?.soft_skills?.length ? (
+                          parsedData.extracted_skills.soft_skills.map((skill: string, idx: number) => (
                             <span key={idx} className="px-2 py-0.5 text-xs rounded bg-white/5 border border-white/5 text-slate-300 font-medium">
                               {skill}
                             </span>
@@ -246,13 +336,13 @@ export const UploadResume: React.FC = () => {
 
                     {/* Certifications */}
                     <div className="p-4 rounded-2xl border border-white/5 bg-slate-950/30 space-y-3">
-                      <div className="flex items-center gap-2 text-slate-405">
+                      <div className="flex items-center gap-2 text-slate-455">
                         <Award className="h-4.5 w-4.5 text-amber-400" />
                         <h4 className="font-bold text-xs uppercase tracking-wider text-slate-300">Certifications</h4>
                       </div>
                       <div className="flex flex-wrap gap-1.5 pt-1">
-                        {uploadMutation.data.extracted_skills?.certifications?.length ? (
-                          uploadMutation.data.extracted_skills.certifications.map((cert, idx) => (
+                        {parsedData.extracted_skills?.certifications?.length ? (
+                          parsedData.extracted_skills.certifications.map((cert: string, idx: number) => (
                             <span key={idx} className="px-2 py-0.5 text-xs rounded bg-white/5 border border-white/5 text-slate-300 font-medium">
                               {cert}
                             </span>

@@ -20,6 +20,7 @@ export interface ResumeItem {
   uploaded_by?: string;
   uploaded_at: string;
   status?: string;
+  parsing_status?: 'pending' | 'processing' | 'completed' | 'failed';
   job_id?: number | null;
   job_title?: string | null;
 }
@@ -31,6 +32,7 @@ export interface ResumeUploadResponse {
   filename: string;
   extracted_text: string;
   extracted_skills: ExtractedSkills;
+  parsing_status?: 'pending' | 'processing' | 'completed' | 'failed';
 }
 
 export interface JobItem {
