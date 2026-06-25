@@ -354,7 +354,16 @@ def update_resume_status(
     db.refresh(resume)
 
     # Attempt to send notification email in background
-    candidate_email = resume.user.email if resume.user else None
+    import re
+    candidate_email = None
+    if resume.extracted_text:
+        email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', resume.extracted_text)
+        if email_match:
+            candidate_email = email_match.group(0)
+            
+    if not candidate_email and resume.user:
+        candidate_email = resume.user.email
+        
     candidate_name = resume.user.name if resume.user and resume.user.name else "Candidate"
     
     if candidate_email and status_update.send_email:

@@ -269,7 +269,16 @@ def update_score_status(
     db.refresh(score)
     
     # Trigger status update email if send_email is True
-    candidate_email = getattr(score.resume.user, "email", None) if score.resume else None
+    import re
+    candidate_email = None
+    if score.resume and score.resume.extracted_text:
+        email_match = re.search(r'[\w\.-]+@[\w\.-]+\.\w+', score.resume.extracted_text)
+        if email_match:
+            candidate_email = email_match.group(0)
+            
+    if not candidate_email and score.resume and score.resume.user:
+        candidate_email = score.resume.user.email
+        
     candidate_name = getattr(score.resume.user, "name", "Candidate") if (score.resume and score.resume.user and score.resume.user.name) else "Candidate"
     
     if candidate_email and status_update.send_email:
