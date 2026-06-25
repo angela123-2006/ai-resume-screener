@@ -1,11 +1,12 @@
 import json
 import os
-import google.generativeai as genai
+import time
+from google import genai
 from dotenv import load_dotenv
 
 load_dotenv()
 
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 SKILL_EXTRACTION_PROMPT = """
 You are a resume parsing engine. Extract skills from the resume text below.
@@ -37,24 +38,43 @@ def extract_skills_from_resume(resume_text: str) -> dict:
     if not resume_text or not resume_text.strip():
         return empty_result
 
-    try:
-        model = genai.GenerativeModel("gemini-2.5-flash")
-        prompt = SKILL_EXTRACTION_PROMPT.format(resume_text=resume_text[:8000])
-        response = model.generate_content(prompt)
+    models = ["gemini-2.5-flash-lite", "gemini-2.5-flash"]
+    last_error = None
 
-        raw_output = response.text.strip()
+    for model_name in models:
+        for attempt in range(3):
+            try:
+                prompt = SKILL_EXTRACTION_PROMPT.format(resume_text=resume_text[:8000])
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                )
+                if not response or not response.text:
+                    continue
 
-        if raw_output.startswith("```"):
-            raw_output = raw_output.strip("`")
-            raw_output = raw_output.replace("json", "", 1).strip()
+                raw_output = response.text.strip()
 
-        skills_data = json.loads(raw_output)
+                if raw_output.startswith("```"):
+                    lines = raw_output.splitlines()
+                    if len(lines) >= 2:
+                        if lines[0].startswith("```"):
+                            lines = lines[1:]
+                        if lines[-1].startswith("```"):
+                            lines = lines[:-1]
+                        raw_output = "\n".join(lines).strip()
+                else:
+                    raw_output = raw_output.replace("json", "", 1).strip()
 
-        for key in empty_result:
-            skills_data.setdefault(key, [])
+                skills_data = json.loads(raw_output)
 
-        return skills_data
+                for key in empty_result:
+                    skills_data.setdefault(key, [])
 
-    except Exception as e:
-        print(f"Skill extraction failed: {e}")
-        return {**empty_result, "error": str(e)}
+                return skills_data
+
+            except Exception as e:
+                last_error = e
+                time.sleep(1)
+
+    print(f"Skill extraction failed: {last_error}")
+    return {**empty_result, "error": str(last_error)}

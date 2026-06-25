@@ -1,10 +1,12 @@
 import os
 import json
-import google.generativeai as genai
+import time
+from google import genai
+from dotenv import load_dotenv
 
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+load_dotenv()
 
-model = genai.GenerativeModel("gemini-2.5-flash")
+client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 
 def score_resume(resume_text: str, job_description: str) -> dict:
@@ -31,26 +33,45 @@ Return ONLY a JSON object, no explanation, no markdown, just raw JSON:
 }}
 """
 
-    try:
-        response = model.generate_content(prompt)
+    models = ["gemini-2.5-flash-lite", "gemini-2.5-flash"]
+    last_error = None
 
-        raw = response.text.strip()
+    for model_name in models:
+        for attempt in range(3):
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                )
+                if not response or not response.text:
+                    continue
 
-        # Remove markdown if Gemini returns it
-        raw = raw.replace("```json", "").replace("```", "").strip()
+                raw = response.text.strip()
+                if raw.startswith("```"):
+                    lines = raw.splitlines()
+                    if len(lines) >= 2:
+                        if lines[0].startswith("```"):
+                            lines = lines[1:]
+                        if lines[-1].startswith("```"):
+                            lines = lines[:-1]
+                        raw = "\n".join(lines).strip()
+                else:
+                    raw = raw.replace("```json", "").replace("```", "").strip()
 
-        result = json.loads(raw)
+                result = json.loads(raw)
+                return result
 
-        return result
+            except Exception as e:
+                last_error = e
+                time.sleep(1)
 
-    except Exception as e:
-        return {
-            "match_score": 0,
-            "strengths": [],
-            "missing_skills": [],
-            "experience_match": "poor",
-            "summary": f"AI Error: {str(e)}"
-        }
+    return {
+        "match_score": 0,
+        "strengths": [],
+        "missing_skills": [],
+        "experience_match": "poor",
+        "summary": f"AI Error: {str(last_error)}"
+    }
 
 
 def build_explanation(resume_extracted_skills: dict, ai_result: dict) -> dict:

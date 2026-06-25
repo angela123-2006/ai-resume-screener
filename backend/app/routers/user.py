@@ -63,7 +63,8 @@ def login(user: UserLogin, db: Session = Depends(get_db)):
 
     token = create_access_token({
         "sub": db_user.email,
-        "role": db_user.role
+        "role": db_user.role,
+        "company_id": db_user.company_id
     })
 
     return {
@@ -84,5 +85,6 @@ def get_me(
 
     return {
         "email": payload.get("sub"),
-        "role": payload.get("role")
+        "role": payload.get("role"),
+        "company_id": payload.get("company_id")
     }

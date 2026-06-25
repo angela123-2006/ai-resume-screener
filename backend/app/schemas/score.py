@@ -11,7 +11,19 @@ class ScoreResponse(BaseModel):
     missing_skills:   str
     summary:          str
     explanation:      Optional[Dict[str, Any]] = None
+    status:           str
+    confidence:       str
+    recruiter_flagged: bool
+    recruiter_override_note: Optional[str] = None
     created_at:       datetime
 
     class Config:
         from_attributes = True
+
+class ScoreStatusUpdate(BaseModel):
+    status: str
+    send_email: bool = True
+
+class ScoreOverrideRequest(BaseModel):
+    flagged: bool
+    note: Optional[str] = None

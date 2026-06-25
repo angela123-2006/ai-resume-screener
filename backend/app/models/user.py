@@ -1,6 +1,7 @@
-from sqlalchemy import Column, Integer, String
-from sqlalchemy.orm import relationship     
+from sqlalchemy import Column, Integer, String, ForeignKey
+from sqlalchemy.orm import relationship
 from app.database.database import Base
+
 
 class User(Base):
     __tablename__ = "users"
@@ -10,5 +11,10 @@ class User(Base):
     email    = Column(String, unique=True, nullable=False)
     password = Column(String, nullable=False)
     role     = Column(String, nullable=False)
+    company_id = Column(Integer, ForeignKey("companies.id"), nullable=True)
 
+    
     resumes  = relationship("Resume", back_populates="user")
+
+    
+    jobs     = relationship("Job", back_populates="recruiter")

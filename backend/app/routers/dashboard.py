@@ -5,6 +5,7 @@ import json
 from collections import Counter
 
 from app.database.session import get_db
+from app.models.user import User
 from app.models.job import Job
 from app.models.resume import Resume
 from app.models.score import Score
@@ -24,29 +25,35 @@ def get_dashboard_stats(
             detail="Only recruiters can access dashboard stats"
         )
 
+    user = db.query(User).filter(User.email == payload.get("sub")).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+
     # -------------------------
     # BASIC STATS
     # -------------------------
-    total_jobs = db.query(Job).count()
-    total_resumes = db.query(Resume).count()
-    total_scores = db.query(Score).count()
+    total_jobs = db.query(Job).filter(Job.recruiter_id == user.id).count()
+    total_resumes = db.query(Resume).join(Job).filter(Job.recruiter_id == user.id).count()
+    total_scores = db.query(Score).join(Job).filter(Job.recruiter_id == user.id).count()
 
-    average_score = db.query(func.avg(Score.match_score)).scalar() or 0
-    top_score = db.query(func.max(Score.match_score)).scalar() or 0
+    average_score = db.query(func.avg(Score.match_score)).join(Job).filter(Job.recruiter_id == user.id).scalar() or 0
+    top_score = db.query(func.max(Score.match_score)).join(Job).filter(Job.recruiter_id == user.id).scalar() or 0
 
     # -------------------------
     # SCORE DISTRIBUTION
     # -------------------------
-    weak = db.query(Score).filter(Score.match_score < 30).count()
-    average = db.query(Score).filter(
+    weak = db.query(Score).join(Job).filter(Score.match_score < 30, Job.recruiter_id == user.id).count()
+    average = db.query(Score).join(Job).filter(
         Score.match_score >= 30,
-        Score.match_score < 60
+        Score.match_score < 60,
+        Job.recruiter_id == user.id
     ).count()
-    good = db.query(Score).filter(
+    good = db.query(Score).join(Job).filter(
         Score.match_score >= 60,
-        Score.match_score < 80
+        Score.match_score < 80,
+        Job.recruiter_id == user.id
     ).count()
-    strong = db.query(Score).filter(Score.match_score >= 80).count()
+    strong = db.query(Score).join(Job).filter(Score.match_score >= 80, Job.recruiter_id == user.id).count()
 
     # -------------------------
     # TOP 5 CANDIDATES (LEADERBOARD)
@@ -59,6 +66,7 @@ def get_dashboard_stats(
         )
         .join(Score, Score.resume_id == Resume.id)
         .join(Job, Job.id == Score.job_id)
+        .filter(Job.recruiter_id == user.id)
         .order_by(Score.match_score.desc())
         .limit(5)
         .all()
@@ -111,7 +119,11 @@ def get_skill_gap_insights(
             detail="Only recruiters can access dashboard insights"
         )
 
-    scores = db.query(Score.missing_skills).all()
+    user = db.query(User).filter(User.email == payload.get("sub")).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+
+    scores = db.query(Score.missing_skills).join(Job).filter(Job.recruiter_id == user.id).all()
 
     missing_counter = Counter()
     for (missing_json,) in scores:
@@ -151,9 +163,16 @@ def get_job_analytics(
             detail="Only recruiters can access job analytics"
         )
 
+    user = db.query(User).filter(User.email == payload.get("sub")).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="User not found")
+
     job = db.query(Job).filter(Job.id == job_id).first()
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+
+    if job.recruiter_id != user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to access analytics for this job")
 
     scores = db.query(Score).filter(Score.job_id == job_id).all()
 
