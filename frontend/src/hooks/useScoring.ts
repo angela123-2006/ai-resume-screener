@@ -47,8 +47,8 @@ export const useExplainScore = (resumeId: number, jobId: number, enabled = true)
 export const useUpdateScoreStatus = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ resumeId, jobId, status }: { resumeId: number; jobId: number; status: string }) =>
-      scoringApi.updateStatus(resumeId, jobId, status),
+    mutationFn: ({ resumeId, jobId, status, sendEmail }: { resumeId: number; jobId: number; status: string; sendEmail?: boolean }) =>
+      scoringApi.updateStatus(resumeId, jobId, status, sendEmail),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['resume-scores', data.resume_id] });
       queryClient.invalidateQueries({ queryKey: ['job-rankings', data.job_id] });

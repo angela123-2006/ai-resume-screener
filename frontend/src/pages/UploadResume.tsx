@@ -32,9 +32,12 @@ export const UploadResume: React.FC = () => {
     }
     setParsingStatus('processing');
     
+    let failureCount = 0;
+    
     const checkStatus = async () => {
       try {
         const details = await resumesApi.getResume(resumeId);
+        failureCount = 0; // Reset on success
         if (details.parsing_status === 'completed') {
           setParsingStatus('completed');
           setParsedData(details);
@@ -52,6 +55,16 @@ export const UploadResume: React.FC = () => {
         }
       } catch (err: any) {
         console.error('Polling error:', err);
+        failureCount++;
+        if (failureCount >= 5) {
+          console.warn('Max polling failures reached. Stopping polling.');
+          setParsingStatus('failed');
+          setError('Failed to check status. Network or session issue. Please reload.');
+          if (pollingIntervalRef.current) {
+            clearInterval(pollingIntervalRef.current);
+            pollingIntervalRef.current = null;
+          }
+        }
       }
     };
 

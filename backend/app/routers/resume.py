@@ -178,11 +178,18 @@ def get_all_resumes(
     if current_user.role != "recruiter":
         raise HTTPException(status_code=403, detail="Not authorized")
 
+    # Find jobs owned by the current recruiter
+    recruiter_job_ids = [j.id for j in db.query(Job).filter(Job.recruiter_id == current_user.id).all()]
+
+    # Find all resumes that have a score for a job managed by this recruiter
+    scored_resume_ids = [s.resume_id for s in db.query(Score).filter(Score.job_id.in_(recruiter_job_ids)).all()] if recruiter_job_ids else []
+
+    # Query resumes that are directly linked, scored/applied, or general jobless uploads by the recruiter
     raw_resumes = (
         db.query(Resume)
-        .outerjoin(Job, Job.id == Resume.job_id)
         .filter(
-            (Job.recruiter_id == current_user.id) |
+            (Resume.job_id.in_(recruiter_job_ids)) |
+            (Resume.id.in_(scored_resume_ids)) |
             ((Resume.job_id == None) & (Resume.user_id == current_user.id))
         )
         .all()
@@ -190,18 +197,31 @@ def get_all_resumes(
     
     # Dedup in Python because PostgreSQL cannot do DISTINCT on JSON columns
     resumes = list({r.id: r for r in raw_resumes}.values())
-    return [
-        {
-            "resume_id":    r.id,
-            "filename":     r.filename,
-            "uploaded_by":  r.user.email if r.user else "Unknown",
-            "uploaded_at":  r.uploaded_at,
-            "status":       r.status,
-            "job_id":       r.job_id,
-            "job_title":    r.job.title if r.job else None,
-        }
-        for r in resumes
-    ]
+    
+    resumes_data = []
+    for r in resumes:
+        # Find score for this recruiter's jobs to display correct status/job for this recruiter
+        score = db.query(Score).filter(Score.resume_id == r.id, Score.job_id.in_(recruiter_job_ids)).first() if recruiter_job_ids else None
+        if score:
+            job_id = score.job_id
+            job_title = score.job.title if score.job else None
+            status = score.status
+        else:
+            job_id = r.job_id
+            job_title = r.job.title if r.job else None
+            status = r.status
+
+        resumes_data.append({
+            "resume_id":      r.id,
+            "filename":       r.filename,
+            "uploaded_by":    r.user.email if r.user else "Unknown",
+            "candidate_name": r.user.name if r.user else "Unknown",
+            "uploaded_at":    r.uploaded_at,
+            "status":         status,
+            "job_id":         job_id,
+            "job_title":      job_title,
+        })
+    return resumes_data
 
 # -------- RECRUITER — specific job applicants -------- #
 
@@ -224,7 +244,10 @@ def get_job_applicants(
     results = (
         db.query(Resume, Score)
         .outerjoin(Score, (Score.resume_id == Resume.id) & (Score.job_id == job_id))
-        .filter(Resume.job_id == job_id)
+        .filter(
+            (Resume.job_id == job_id) |
+            (Score.job_id == job_id)
+        )
         .all()
     )
     
@@ -233,8 +256,9 @@ def get_job_applicants(
             "resume_id": r.id,
             "filename": r.filename,
             "uploaded_by": r.user.email if r.user else "Unknown",
+            "candidate_name": r.user.name if r.user else "Unknown",
             "uploaded_at": r.uploaded_at,
-            "status": r.status,
+            "status": s.status if s else r.status,
             "match_score": s.match_score if s else None
         }
         for r, s in results
@@ -270,20 +294,18 @@ def get_resume(
             )
             raise HTTPException(status_code=403, detail="Not authorized")
     elif current_user.role == "recruiter":
-        if resume.job:
-            if resume.job.recruiter_id != current_user.id:
-                logger.debug(
-                    f"[GET_RESUME] Access Denied: Recruiter user ID {current_user.id} "
-                    f"does not match job recruiter ID {resume.job.recruiter_id}."
-                )
-                raise HTTPException(status_code=403, detail="Not authorized to view this resume")
-        else:
-            if resume.user_id != current_user.id:
-                logger.debug(
-                    f"[GET_RESUME] Access Denied: Recruiter user ID {current_user.id} "
-                    f"did not upload this job-less resume (resume.user_id = {resume.user_id})."
-                )
-                raise HTTPException(status_code=403, detail="Not authorized to view this resume")
+        owns_direct_job = resume.job and resume.job.recruiter_id == current_user.id
+        has_score_for_recruiter_job = db.query(Score).join(Job).filter(
+            Score.resume_id == resume.id,
+            Job.recruiter_id == current_user.id
+        ).count() > 0
+        
+        if not (owns_direct_job or has_score_for_recruiter_job or (resume.job_id is None and resume.user_id == current_user.id)):
+            logger.debug(
+                f"[GET_RESUME] Access Denied: Recruiter user ID {current_user.id} "
+                f"does not own the resume's job or have a score record for this resume."
+            )
+            raise HTTPException(status_code=403, detail="Not authorized to view this resume")
     elif current_user.role == "company_admin":
         if resume.job:
             if resume.job.company_id != current_user.company_id:
@@ -382,12 +404,14 @@ def update_resume_status(
     if not resume:
         raise HTTPException(status_code=404, detail="Resume not found")
 
-    job = resume.job
-    if not job:
-        raise HTTPException(status_code=404, detail="Resume is not associated with a job")
+    owns_direct_job = resume.job and resume.job.recruiter_id == current_user.id
+    has_score_for_recruiter_job = db.query(Score).join(Job).filter(
+        Score.resume_id == resume.id,
+        Job.recruiter_id == current_user.id
+    ).count() > 0
 
-    if job.recruiter_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not authorized to update status for this job")
+    if not (owns_direct_job or has_score_for_recruiter_job or (resume.job_id is None and resume.user_id == current_user.id)):
+        raise HTTPException(status_code=403, detail="Not authorized to update status for this resume")
 
     resume.status = status_update.status
     db.commit()

@@ -1,77 +1,57 @@
 import os
 import json
 import time
+import re
 from google import genai
 from dotenv import load_dotenv
 
 load_dotenv()
 
-client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+# genai client is now managed inside app/services/ai_provider.py
+from app.services.ai_provider import generate_score
+
+def clean_and_parse_json(text: str) -> dict:
+    raw = text.strip()
+    # 1. Try loading directly
+    try:
+        return json.loads(raw)
+    except Exception:
+        pass
+
+    # 2. Try pattern matching standard JSON structure
+    match = re.search(r'(\{.*\})', raw, re.DOTALL)
+    if match:
+        try:
+            return json.loads(match.group(1).strip())
+        except Exception:
+            pass
+
+    # 3. Strip code blocks and try again
+    cleaned = raw.replace("```json", "").replace("```", "").strip()
+    try:
+        return json.loads(cleaned)
+    except Exception:
+        pass
+
+    match = re.search(r'(\{.*\})', cleaned, re.DOTALL)
+    if match:
+        return json.loads(match.group(1).strip())
+
+    raise ValueError("Failed to locate a valid JSON block in response.")
 
 
 def score_resume(resume_text: str, job_description: str) -> dict:
-
-    prompt = f"""
-You are an expert HR recruiter and resume screener.
-
-Analyze this resume against the job description below.
-
-JOB DESCRIPTION:
-{job_description}
-
-RESUME:
-{resume_text}
-
-Return ONLY a JSON object, no explanation, no markdown, just raw JSON:
-
-{{
-    "match_score": <integer 0-100>,
-    "strengths": ["skill1", "skill2", "skill3"],
-    "missing_skills": ["skill1", "skill2"],
-    "experience_match": "good or partial or poor",
-    "summary": "2-3 sentence evaluation of the candidate"
-}}
-"""
-
-    models = ["gemini-2.5-flash-lite", "gemini-2.5-flash"]
-    last_error = None
-
-    for model_name in models:
-        for attempt in range(3):
-            try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=prompt,
-                )
-                if not response or not response.text:
-                    continue
-
-                raw = response.text.strip()
-                if raw.startswith("```"):
-                    lines = raw.splitlines()
-                    if len(lines) >= 2:
-                        if lines[0].startswith("```"):
-                            lines = lines[1:]
-                        if lines[-1].startswith("```"):
-                            lines = lines[:-1]
-                        raw = "\n".join(lines).strip()
-                else:
-                    raw = raw.replace("```json", "").replace("```", "").strip()
-
-                result = json.loads(raw)
-                return result
-
-            except Exception as e:
-                last_error = e
-                time.sleep(1)
-
-    return {
-        "match_score": 0,
-        "strengths": [],
-        "missing_skills": [],
-        "experience_match": "poor",
-        "summary": f"AI Error: {str(last_error)}"
-    }
+    try:
+        return generate_score(resume_text, job_description)
+    except Exception as e:
+        return {
+            "match_score": 0,
+            "strengths": [],
+            "missing_skills": [],
+            "experience_match": "poor",
+            "summary": f"Screener Error: {str(e)}",
+            "provider_used": "none"
+        }
 
 
 def build_explanation(resume_extracted_skills: dict, ai_result: dict) -> dict:

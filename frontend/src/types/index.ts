@@ -18,6 +18,7 @@ export interface ResumeItem {
   resume_id: number;
   filename: string;
   uploaded_by?: string;
+  candidate_name?: string | null;
   uploaded_at: string;
   status?: string;
   parsing_status?: 'pending' | 'processing' | 'completed' | 'failed';
@@ -97,6 +98,8 @@ export interface JobRankingItem {
   confidence: string;
   recruiter_flagged: boolean;
   recruiter_override_note: string | null;
+  candidate_name?: string | null;
+  candidate_email?: string | null;
 }
 
 export interface DashboardOverview {

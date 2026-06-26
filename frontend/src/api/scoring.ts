@@ -41,8 +41,11 @@ export const scoringApi = {
     }>(`/scoring/${resumeId}/score/${jobId}/explain`);
     return res.data;
   },
-  updateStatus: async (resumeId: number, jobId: number, status: string) => {
-    const res = await api.patch<RawScoreResponse>(`/scoring/${resumeId}/${jobId}/status`, { status });
+  updateStatus: async (resumeId: number, jobId: number, status: string, sendEmail = true) => {
+    const res = await api.patch<RawScoreResponse>(
+      `/scoring/${resumeId}/${jobId}/status`,
+      { status, send_email: sendEmail }
+    );
     return normalizeScore(res.data);
   },
   inviteCandidate: async (resumeId: number, jobId: number) => {

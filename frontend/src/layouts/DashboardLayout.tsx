@@ -16,6 +16,7 @@ import {
   Sparkles,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { ChatCopilot } from '../components/ChatCopilot';
 
 export const DashboardLayout: React.FC = () => {
   const { user, logout } = useAuth();
@@ -226,6 +227,9 @@ export const DashboardLayout: React.FC = () => {
           </AnimatePresence>
         </main>
       </div>
+
+      {/* Recruiter Chat Copilot Floating panel */}
+      {isRecruiter && <ChatCopilot />}
     </div>
   );
 };

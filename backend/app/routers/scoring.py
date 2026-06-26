@@ -386,7 +386,9 @@ def get_job_rankings(
             "status": score.resume.status if score.resume else "pending",
             "confidence": score.confidence,
             "recruiter_flagged": score.recruiter_flagged,
-            "recruiter_override_note": score.recruiter_override_note
+            "recruiter_override_note": score.recruiter_override_note,
+            "candidate_name": score.resume.user.name if score.resume and score.resume.user else "Candidate",
+            "candidate_email": score.resume.user.email if score.resume and score.resume.user else None,
         }
         for rank, score in enumerate(scores, start=1)
     ]

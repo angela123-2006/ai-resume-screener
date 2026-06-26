@@ -11,6 +11,8 @@ from app.routers.jobs import router as jobs_router
 from app.routers.scoring import router as scoring_router
 from app.routers.dashboard import router as dashboard_router
 from app.routers.notifications import router as notification_router
+from app.routers.chatbot import router as chatbot_router
+from app.routers.ai_status import router as ai_status_router
 
 # Import all models to ensure SQLAlchemy knows about them before create_all and mapper init
 from app.models.company import Company
@@ -40,8 +42,10 @@ app.include_router(jobs_router, prefix="/api/jobs", tags=["Jobs"])
 app.include_router(scoring_router, prefix="/api/scoring", tags=["Scoring"])
 app.include_router(dashboard_router, prefix="/api/dashboard", tags=["Dashboard"])
 
-# New Notifications Router
+# New Notifications, Chatbot, and AI Status Routers
 app.include_router(notification_router, prefix="/api")
+app.include_router(chatbot_router, prefix="/api", tags=["Chatbot"])
+app.include_router(ai_status_router, prefix="/api/ai", tags=["AI Provider Status"])
 
 @app.get("/")
 def home():

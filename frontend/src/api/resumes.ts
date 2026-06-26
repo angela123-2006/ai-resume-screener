@@ -51,4 +51,12 @@ export const resumesApi = {
     const res = await api.get<any[]>(`/notifications/resume/${resumeId}`);
     return res.data;
   },
+  getCompanyNotifications: async () => {
+    const res = await api.get<any[]>('/notifications/company');
+    return res.data;
+  },
+  simulateCandidateReply: async (data: { sender_email: string; subject: string; body: string }) => {
+    const res = await api.post<{ success: boolean; message: string }>('/notifications/inbound-webhook', data);
+    return res.data;
+  },
 };

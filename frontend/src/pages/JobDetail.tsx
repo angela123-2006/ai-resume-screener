@@ -3,8 +3,10 @@ import { useParams, Link } from 'react-router-dom';
 import { useJob } from '../hooks/useJobs';
 import { useAuth } from '../contexts/AuthContext';
 import { useJobRankings, useOverrideScore, useScoreResume } from '../hooks/useScoring';
-import { useMyResumes, useResume, useUpdateResumeStatus } from '../hooks/useResumes';
+import { useMyResumes, useResume } from '../hooks/useResumes';
 import { useJobAnalytics } from '../hooks/useDashboard';
+import { useQueryClient, useMutation } from '@tanstack/react-query';
+import { resumesApi } from '../api/resumes';
 import { Briefcase, ArrowLeft, ChevronRight, BarChart2, Flag, FileText, X, GripVertical } from 'lucide-react';
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell } from 'recharts';
 import { DragDropContext, Droppable, Draggable } from '@hello-pangea/dnd';
@@ -24,14 +26,47 @@ export const JobDetail: React.FC = () => {
   const { user } = useAuth();
   
   const { data: job, isLoading: jobLoading } = useJob(idNum);
-  
   const isRecruiter = user?.role === 'recruiter';
   
   const { data: rankings, isLoading: rankingsLoading } = useJobRankings(idNum, isRecruiter);
   const { data: analytics, isLoading: analyticsLoading } = useJobAnalytics(idNum, isRecruiter);
-  const updateStatusMutation = useUpdateResumeStatus();
   const overrideMutation = useOverrideScore();
   const scoreMutation = useScoreResume();
+  const queryClient = useQueryClient();
+
+  // 1. Optimistic Update and Rollback status update mutation
+  const updateStatusMutation = useMutation({
+    mutationFn: ({ resumeId, status, sendEmail }: { resumeId: number; status: string; sendEmail?: boolean }) =>
+      resumesApi.updateStatus(resumeId, status, sendEmail),
+    onMutate: async ({ resumeId, status }) => {
+      // Cancel any outgoing query refetches so they don't overwrite our optimistic update
+      await queryClient.cancelQueries({ queryKey: ['job-rankings', idNum, user?.company_id] });
+
+      // Snapshot the previous rankings state
+      const previousRankings = queryClient.getQueryData(['job-rankings', idNum, user?.company_id]);
+
+      // Optimistically update the cache to prevent snapping back
+      queryClient.setQueryData(['job-rankings', idNum, user?.company_id], (old: any[] | undefined) => {
+        if (!old) return [];
+        return old.map(r => r.resume_id === resumeId ? { ...r, status } : r);
+      });
+
+      // Return context containing previous value for rollback
+      return { previousRankings };
+    },
+    onError: (_err, _variables, context: any) => {
+      // Rollback to the snapshotted state on API failure
+      if (context?.previousRankings) {
+        queryClient.setQueryData(['job-rankings', idNum, user?.company_id], context.previousRankings);
+      }
+      alert('Failed to update candidate status. Please try again.');
+    },
+    onSuccess: () => {
+      // Refetch rankings to sync with the database confirmed state
+      queryClient.invalidateQueries({ queryKey: ['job-rankings', idNum, user?.company_id] });
+      queryClient.invalidateQueries({ queryKey: ['my-resumes'] });
+    }
+  });
 
   const [activeTab, setActiveTab] = useState<'details' | 'rankings' | 'analytics'>('details');
   const [showApplyModal, setShowApplyModal] = useState(false);
@@ -79,15 +114,19 @@ export const JobDetail: React.FC = () => {
     
     const [draggedItem] = sourceList.splice(source.index, 1);
     
-    // Optimistic update
+    // Local optimistic update
     draggedItem.status = destCol;
     destList.splice(destination.index, 0, draggedItem);
     
     newBoard[sourceCol] = sourceList;
     if (sourceCol !== destCol) {
       newBoard[destCol] = destList;
-      // Trigger backend update
-      updateStatusMutation.mutate({ resumeId: Number(draggableId), status: destCol, sendEmail: sendEmailOnDrag });
+      // Trigger status update API call on drop
+      updateStatusMutation.mutate({ 
+        resumeId: Number(draggableId), 
+        status: destCol, 
+        sendEmail: sendEmailOnDrag 
+      });
     }
     
     setBoardData(newBoard);
@@ -268,9 +307,18 @@ export const JobDetail: React.FC = () => {
                                   style={{...provided.draggableProps.style}}
                                 >
                                   <div className="flex justify-between items-start mb-2">
-                                    <div className="flex items-center gap-2">
-                                      <GripVertical className="h-4 w-4 text-slate-600 opacity-50 group-hover:opacity-100" />
-                                      <span className="font-bold text-slate-200 text-sm">Resume #{rank.resume_id}</span>
+                                    <div className="flex flex-col min-w-0 pr-2">
+                                      <div className="flex items-center gap-2">
+                                        <GripVertical className="h-4 w-4 text-slate-650 opacity-50 group-hover:opacity-100 shrink-0" />
+                                        <span className="font-bold text-slate-200 text-sm truncate" title={rank.candidate_name || `Resume #${rank.resume_id}`}>
+                                          {rank.candidate_name || `Resume #${rank.resume_id}`}
+                                        </span>
+                                      </div>
+                                      {rank.candidate_email && (
+                                        <span className="text-[10px] text-slate-500 font-medium ml-6 truncate" title={rank.candidate_email}>
+                                          {rank.candidate_email}
+                                        </span>
+                                      )}
                                     </div>
                                     <span className={`inline-flex items-center justify-center h-6 w-10 rounded text-[10px] font-extrabold border ${
                                       rank.score >= 80 ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :

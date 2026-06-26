@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useDashboardStats } from '../hooks/useDashboard';
-import { Briefcase, FileText, CheckSquare, Award, Target, Trophy, ChevronRight, PieChart as PieChartIcon, Sparkles } from 'lucide-react';
+import { Briefcase, FileText, CheckSquare, Award, Target, Trophy, ChevronRight, PieChart as PieChartIcon, Sparkles, Mail, CornerUpLeft, Loader2 } from 'lucide-react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Skeleton } from '../components/Skeleton';
+import { resumesApi } from '../api/resumes';
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -22,6 +23,42 @@ const itemVariants = {
 export const Dashboard: React.FC = () => {
   const { data: statsData, isLoading, error } = useDashboardStats();
   const [activeIndex, setActiveIndex] = useState<number | undefined>(undefined);
+
+  const [logs, setLogs] = useState<any[]>([]);
+  const [logsLoading, setLogsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchLogs = async () => {
+      try {
+        const data = await resumesApi.getCompanyNotifications();
+        setLogs(data);
+      } catch (err) {
+        console.error('Error loading correspondence logs:', err);
+      } finally {
+        setLogsLoading(false);
+      }
+    };
+    fetchLogs();
+  }, []);
+
+  const [simulatingId, setSimulatingId] = useState<number | null>(null);
+
+  const handleSimulateReply = async (email: string, originalSubject: string, logId: number) => {
+    setSimulatingId(logId);
+    try {
+      await resumesApi.simulateCandidateReply({
+        sender_email: email,
+        subject: originalSubject.startsWith('Re:') ? originalSubject : `Re: ${originalSubject}`,
+        body: 'Hi! Thank you for the update. Confirming that I have received this and would love to proceed. Looking forward to the next steps!'
+      });
+      const data = await resumesApi.getCompanyNotifications();
+      setLogs(data);
+    } catch (err) {
+      console.error('Failed to simulate candidate reply:', err);
+    } finally {
+      setSimulatingId(null);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -211,6 +248,107 @@ export const Dashboard: React.FC = () => {
         </motion.div>
 
       </div>
+
+      {/* Company Correspondence Log Stream */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.4 }}
+        className="glass-card p-6 rounded-3xl space-y-6 mt-6"
+      >
+        <div className="flex items-center justify-between border-b border-white/5 pb-4">
+          <div className="flex items-center gap-2">
+            <Mail className="h-5 w-5 text-brand-cyan" />
+            <h3 className="text-lg font-bold text-slate-200">Company Correspondence Logs</h3>
+          </div>
+          <span className="text-2xs font-bold text-brand-cyan border border-brand-cyan/25 bg-brand-cyan/5 px-2.5 py-1 rounded-full uppercase tracking-wider">
+            Audit Stream
+          </span>
+        </div>
+
+        {logsLoading ? (
+          <div className="space-y-3">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        ) : logs.length === 0 ? (
+          <p className="text-sm text-slate-500 text-center py-10">No candidate communications logged yet.</p>
+        ) : (
+          <div className="overflow-x-auto scroll-container">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-white/5 text-[10px] font-bold text-slate-500 uppercase tracking-widest">
+                  <th className="pb-3 pr-4">Recipient</th>
+                  <th className="pb-3 px-4">Subject</th>
+                  <th className="pb-3 px-4">Action</th>
+                  <th className="pb-3 px-4 text-center">Status</th>
+                  <th className="pb-3 px-4 text-center">Simulate Reply</th>
+                  <th className="pb-3 pl-4 text-right">Date Sent</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/5 text-xs">
+                {logs.map((log) => (
+                  <tr key={log.id} className="hover:bg-white/2 transition-colors">
+                    <td className="py-3.5 pr-4 font-bold text-slate-200">
+                      <div>{log.candidate_name}</div>
+                      <div className="text-[10px] text-slate-500 font-medium">{log.candidate_email}</div>
+                    </td>
+                    <td className="py-3.5 px-4 text-slate-355 max-w-xs truncate text-slate-300" title={log.email_subject}>
+                      {log.email_subject}
+                    </td>
+                    <td className="py-3.5 px-4">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${
+                        log.status === 'candidate_reply'
+                          ? 'bg-pink-500/10 border-pink-500/20 text-pink-400 font-extrabold shadow-[0_0_10px_rgba(236,72,153,0.1)]'
+                          : log.status === 'custom_email'
+                          ? 'bg-brand-purple/10 border-brand-purple/20 text-brand-cyan'
+                          : log.status === 'interview'
+                          ? 'bg-blue-500/10 border-blue-500/20 text-blue-400'
+                          : log.status === 'hired'
+                          ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-450'
+                          : 'bg-red-500/10 border-red-500/20 text-red-400'
+                      }`}>
+                        {log.status === 'candidate_reply' ? 'Candidate Reply' : log.status === 'custom_email' ? 'Custom draft' : log.status}
+                      </span>
+                    </td>
+                    <td className="py-3.5 px-4 text-center">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-extrabold tracking-wider ${
+                        log.delivery_status === 'sent' || log.delivery_status === 'received'
+                          ? 'bg-emerald-500/10 text-emerald-450 border border-emerald-500/20'
+                          : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                      }`}>
+                        {log.delivery_status}
+                      </span>
+                    </td>
+                    <td className="py-3.5 px-4 text-center">
+                      {log.status !== 'candidate_reply' ? (
+                        <button
+                          onClick={() => handleSimulateReply(log.candidate_email, log.email_subject, log.id)}
+                          disabled={simulatingId === log.id}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 text-[10px] font-bold text-brand-cyan hover:text-white bg-brand-cyan/10 border border-brand-cyan/20 hover:border-brand-cyan rounded-lg transition-all cursor-pointer disabled:opacity-50"
+                          title="Simulate candidate email reply"
+                        >
+                          {simulatingId === log.id ? (
+                            <Loader2 className="h-3 w-3 animate-spin text-brand-cyan" />
+                          ) : (
+                            <CornerUpLeft className="h-3.5 w-3.5" />
+                          )}
+                          Reply
+                        </button>
+                      ) : (
+                        <span className="text-[10px] text-slate-500 italic font-medium">Inbound Response</span>
+                      )}
+                    </td>
+                    <td className="py-3.5 pl-4 text-right text-slate-450 font-medium">
+                      {new Date(log.sent_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </motion.div>
     </div>
   );
 };

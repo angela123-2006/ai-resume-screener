@@ -106,9 +106,12 @@ export const AllResumes: React.FC = () => {
                         </div>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="flex items-center gap-1.5 text-sm text-slate-300">
-                          <User className="h-4 w-4 text-slate-500" />
-                          <span>{resume.uploaded_by}</span>
+                        <div className="flex flex-col">
+                          <div className="flex items-center gap-1.5 text-sm text-slate-200 font-bold">
+                            <User className="h-4 w-4 text-slate-405 shrink-0" />
+                            <span>{resume.candidate_name || resume.uploaded_by?.split('@')[0]}</span>
+                          </div>
+                          <span className="text-[11px] text-slate-500 ml-5.5 mt-0.5">{resume.uploaded_by}</span>
                         </div>
                       </td>
                       <td className="px-6 py-4">

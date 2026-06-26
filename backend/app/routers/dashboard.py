@@ -61,11 +61,13 @@ def get_dashboard_stats(
     top_candidates = (
         db.query(
             Resume.filename,
+            User.name.label("user_name"),
             Score.match_score,
             Job.title.label("job_title")
         )
         .join(Score, Score.resume_id == Resume.id)
         .join(Job, Job.id == Score.job_id)
+        .join(User, User.id == Resume.user_id)
         .filter(Job.recruiter_id == user.id)
         .order_by(Score.match_score.desc())
         .limit(5)
@@ -74,7 +76,7 @@ def get_dashboard_stats(
 
     top_candidates_list = [
         {
-            "resume": r.filename,
+            "resume": r.user_name if r.user_name else r.filename,
             "job": r.job_title,
             "score": r.match_score
         }
@@ -189,8 +191,13 @@ def get_job_analytics(
     strong = sum(1 for s in scores if s.match_score >= 80)
 
     top_candidates = (
-        db.query(Resume.filename, Score.match_score)
+        db.query(
+            Resume.filename,
+            User.name.label("user_name"),
+            Score.match_score
+        )
         .join(Score, Score.resume_id == Resume.id)
+        .join(User, User.id == Resume.user_id)
         .filter(Score.job_id == job_id)
         .order_by(Score.match_score.desc())
         .limit(5)
@@ -198,7 +205,7 @@ def get_job_analytics(
     )
 
     top_candidates_list = [
-        {"resume": r.filename, "score": r.match_score}
+        {"resume": r.user_name if r.user_name else r.filename, "score": r.match_score}
         for r in top_candidates
     ]
 
